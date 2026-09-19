@@ -109,6 +109,19 @@ function toDateStr(d) {
 function parseSpokenDate(raw) {
   const text = normalizeText(raw);
   const today = new Date();
+
+  // Une date précise ("3 juin") prime sur un simple nom de jour ("lundi 3 juin").
+  const dayMonthMatch = text.match(/(\d{1,2})(?:er)?\s+(janvier|fevrier|mars|avril|mai|juin|juillet|aout|septembre|octobre|novembre|decembre)/);
+  if (dayMonthMatch) {
+    const day = parseInt(dayMonthMatch[1], 10);
+    const monthIdx = MONTHS_FR_ASCII.indexOf(dayMonthMatch[2]);
+    let d = new Date(today.getFullYear(), monthIdx, day);
+    if (d.getTime() - today.getTime() > 1000 * 60 * 60 * 24 * 3) {
+      d = new Date(today.getFullYear() - 1, monthIdx, day);
+    }
+    return toDateStr(d);
+  }
+
   if (/aujourd\s*'?\s*hui/.test(text)) return toDateStr(today);
   if (/avant.?hier/.test(text)) { const d = new Date(today); d.setDate(d.getDate() - 2); return toDateStr(d); }
   if (/\bhier\b/.test(text)) { const d = new Date(today); d.setDate(d.getDate() - 1); return toDateStr(d); }
@@ -122,18 +135,23 @@ function parseSpokenDate(raw) {
       return toDateStr(d);
     }
   }
-
-  const dayMonthMatch = text.match(/(\d{1,2})(?:er)?\s+(janvier|fevrier|mars|avril|mai|juin|juillet|aout|septembre|octobre|novembre|decembre)/);
-  if (dayMonthMatch) {
-    const day = parseInt(dayMonthMatch[1], 10);
-    const monthIdx = MONTHS_FR_ASCII.indexOf(dayMonthMatch[2]);
-    let d = new Date(today.getFullYear(), monthIdx, day);
-    if (d.getTime() - today.getTime() > 1000 * 60 * 60 * 24 * 3) {
-      d = new Date(today.getFullYear() - 1, monthIdx, day);
-    }
-    return toDateStr(d);
-  }
   return null;
+}
+
+function parseSpokenEntry(raw) {
+  const text = normalizeText(raw);
+
+  const timeRegex = /(\d{1,2}\s*(?:heures?|h|:)\s*(?:\d{1,2})?|\bmidi\b|\bminuit\b)/g;
+  const timeTokens = [];
+  let m;
+  while ((m = timeRegex.exec(text)) !== null) {
+    const parsed = parseSpokenTime(m[0]);
+    if (parsed) timeTokens.push(parsed);
+  }
+  if (timeTokens.length < 2) return null;
+
+  const dateStr = parseSpokenDate(text) || getTodayStr();
+  return { dateStr, start: timeTokens[0], end: timeTokens[1] };
 }
 
 export default function App() {
@@ -151,8 +169,9 @@ export default function App() {
   const [theme, setTheme] = useState(() => {
     try { return localStorage.getItem(THEME_KEY) || "dark"; } catch { return "dark"; }
   });
-  const [listeningField, setListeningField] = useState(null);
+  const [voiceListening, setVoiceListening] = useState(false);
   const [voiceError, setVoiceError] = useState(null);
+  const [voiceSuccess, setVoiceSuccess] = useState(null);
   const voiceSupported = typeof window !== "undefined" && !!(window.SpeechRecognition || window.webkitSpeechRecognition);
 
   const today = new Date();
@@ -233,7 +252,7 @@ export default function App() {
     setTimeout(() => setManualSuccess(false), 2000);
   };
 
-  const startVoiceInput = (field) => {
+  const startVoiceEntry = () => {
     if (!voiceSupported) {
       setVoiceError("Reconnaissance vocale non supportée par ce navigateur.");
       setTimeout(() => setVoiceError(null), 3000);
@@ -248,51 +267,49 @@ export default function App() {
 
     recognition.onresult = (event) => {
       const transcript = event.results[0][0].transcript;
-      if (field === "date") {
-        const dateStr = parseSpokenDate(transcript);
-        if (dateStr) {
-          setSelectedDate(dateStr);
-          const [y, m] = dateStr.split("-").map(Number);
-          setCalYear(y);
-          setCalMonth(m - 1);
-        } else {
-          setVoiceError(`Date non reconnue : "${transcript}"`);
-          setTimeout(() => setVoiceError(null), 3000);
-        }
+      const parsed = parseSpokenEntry(transcript);
+      if (parsed) {
+        setSelectedDate(parsed.dateStr);
+        const [y, mo] = parsed.dateStr.split("-").map(Number);
+        setCalYear(y);
+        setCalMonth(mo - 1);
+        setManualStart(parsed.start);
+        setManualEnd(parsed.end);
+        const yesterdayStr = toDateStr(new Date(Date.now() - 86400000));
+        const dateLabel = parsed.dateStr === getTodayStr() ? "aujourd'hui"
+          : parsed.dateStr === yesterdayStr ? "hier"
+          : formatDate(parsed.dateStr + "T12:00:00");
+        setVoiceSuccess(`✓ Compris : ${dateLabel}, ${parsed.start.replace(":", "h")} → ${parsed.end.replace(":", "h")}`);
+        setTimeout(() => setVoiceSuccess(null), 4000);
       } else {
-        const timeStr = parseSpokenTime(transcript);
-        if (timeStr) {
-          if (field === "start") setManualStart(timeStr);
-          else setManualEnd(timeStr);
-        } else {
-          setVoiceError(`Heure non reconnue : "${transcript}"`);
-          setTimeout(() => setVoiceError(null), 3000);
-        }
+        setVoiceError(`Phrase non comprise : "${transcript}"`);
+        setTimeout(() => setVoiceError(null), 3500);
       }
     };
     recognition.onerror = () => {
       setVoiceError("Erreur de reconnaissance vocale, réessaie.");
       setTimeout(() => setVoiceError(null), 3000);
     };
-    recognition.onend = () => setListeningField(null);
+    recognition.onend = () => setVoiceListening(false);
 
     setVoiceError(null);
-    setListeningField(field);
+    setVoiceSuccess(null);
+    setVoiceListening(true);
     recognition.start();
   };
 
-  const renderMicButton = (field, size = 40) => (
+  const renderVoiceButton = () => (
     <button
       type="button"
-      onClick={() => startVoiceInput(field)}
-      title={voiceSupported ? "Dicter au micro" : "Micro non supporté par ce navigateur"}
+      onClick={startVoiceEntry}
+      title={voiceSupported ? "Dicter une entrée complète (ex: \"aujourd'hui de 8h15 à 16h49\")" : "Micro non supporté par ce navigateur"}
       style={{
-        width: size, height: size, borderRadius: 4, flexShrink: 0, cursor: "pointer",
+        width: 44, height: 44, borderRadius: 4, flexShrink: 0, cursor: "pointer",
         border: "1px solid var(--border)",
-        background: listeningField === field ? "var(--danger)" : "var(--surface-2)",
-        color: listeningField === field ? "#ffffff" : "var(--text)",
-        fontSize: size >= 40 ? 16 : 14,
-        animation: listeningField === field ? "pulse 1s infinite" : "none",
+        background: voiceListening ? "var(--danger)" : "var(--surface2)",
+        color: voiceListening ? "#ffffff" : "var(--text)",
+        fontSize: 18,
+        animation: voiceListening ? "pulse 1s infinite" : "none",
       }}
     >🎤</button>
   );
@@ -479,35 +496,38 @@ export default function App() {
             </div>
 
             {/* Selected date */}
-            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, marginBottom:16 }}>
-              <div style={{ fontSize:11, color:"var(--muted5)", textTransform:"capitalize" }}>
-                📅 {formatDate(new Date(selectedDate+"T12:00:00"))}
-              </div>
-              {renderMicButton("date", 32)}
+            <div style={{ fontSize:11, color:"var(--muted5)", marginBottom:16, textTransform:"capitalize" }}>
+              📅 {formatDate(new Date(selectedDate+"T12:00:00"))}
             </div>
-
-            {voiceError && (
-              <div style={{ background:"var(--dangerBg)", border:"1px solid var(--danger)", color:"var(--danger)", borderRadius:4, padding:"10px 14px", marginBottom:16, fontSize:12, textAlign:"center" }}>
-                🎤 {voiceError}
-              </div>
-            )}
 
             {/* Manual entry form */}
             <div style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:4, padding:16, marginBottom:16 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:16 }}>
+                {renderVoiceButton()}
+                <div style={{ fontSize:11, color:"var(--muted2)", lineHeight:1.5 }}>
+                  Dis une phrase complète, ex. <span style={{ color:"var(--muted6)" }}>« aujourd'hui de 8h15 à 16h49 »</span>
+                </div>
+              </div>
+
+              {voiceSuccess && (
+                <div style={{ background:"var(--successBg)", border:"1px solid var(--accent)", color:"var(--accent)", borderRadius:4, padding:"10px 14px", marginBottom:14, fontSize:12, textAlign:"center", fontWeight:"bold" }}>
+                  {voiceSuccess}
+                </div>
+              )}
+              {voiceError && (
+                <div style={{ background:"var(--dangerBg)", border:"1px solid var(--danger)", color:"var(--danger)", borderRadius:4, padding:"10px 14px", marginBottom:14, fontSize:12, textAlign:"center" }}>
+                  🎤 {voiceError}
+                </div>
+              )}
+
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:14 }}>
                 <div>
                   <div style={{ fontSize:10, letterSpacing:2, color:"var(--muted)", marginBottom:6 }}>DÉBUT</div>
-                  <div style={{ display:"flex", gap:6 }}>
-                    <input type="time" value={manualStart} onChange={(e)=>setManualStart(e.target.value)} style={{...inputStyle,colorScheme: theme==="dark" ? "dark" : "light"}} />
-                    {renderMicButton("start")}
-                  </div>
+                  <input type="time" value={manualStart} onChange={(e)=>setManualStart(e.target.value)} style={{...inputStyle,colorScheme: theme==="dark" ? "dark" : "light"}} />
                 </div>
                 <div>
                   <div style={{ fontSize:10, letterSpacing:2, color:"var(--muted)", marginBottom:6 }}>FIN</div>
-                  <div style={{ display:"flex", gap:6 }}>
-                    <input type="time" value={manualEnd} onChange={(e)=>setManualEnd(e.target.value)} style={{...inputStyle,colorScheme: theme==="dark" ? "dark" : "light"}} />
-                    {renderMicButton("end")}
-                  </div>
+                  <input type="time" value={manualEnd} onChange={(e)=>setManualEnd(e.target.value)} style={{...inputStyle,colorScheme: theme==="dark" ? "dark" : "light"}} />
                 </div>
               </div>
 
@@ -779,7 +799,7 @@ export default function App() {
             <div style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:4, padding:20 }}>
               <div style={{ fontSize:12, letterSpacing:2, color:"var(--muted5)", marginBottom:12 }}>COMMANDE VOCALE</div>
               <div style={{ fontSize:12, color:"var(--muted2)", lineHeight:1.8 }}>
-                🎤 Utilise les boutons micro de l'onglet Calendrier pour dicter les heures ("8h30") et la date ("aujourd'hui", "hier", "lundi", "12 septembre").<br/>
+                🎤 Dans l'onglet Calendrier, utilise le bouton micro de la saisie manuelle pour dicter une entrée complète en une phrase, ex. "aujourd'hui de 8h15 à 16h49" ou "lundi 3 juin de 6h à 18h50".<br/>
                 {voiceSupported
                   ? "✅ Ton navigateur supporte la reconnaissance vocale (100% native, aucune donnée envoyée à un service externe)."
                   : "⚠️ Ton navigateur ne supporte pas la reconnaissance vocale."}
