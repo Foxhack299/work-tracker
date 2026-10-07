@@ -752,7 +752,7 @@ export default function App() {
               <div style={{ fontSize:12, color:"var(--muted2)", lineHeight:1.8 }}>
                 🎤 Dans l'onglet Calendrier, utilise le bouton micro de la saisie manuelle pour dicter une entrée complète en une phrase, ex. "aujourd'hui de 8h15 à 16h49" ou "lundi 3 juin de 6h à 18h50".<br/>
                 {voiceSupported
-                  ? "✅ Ton navigateur supporte la reconnaissance vocale (100% native, aucune donnée envoyée à un service externe)."
+                  ? "✅ Ton navigateur supporte la reconnaissance vocale. L'audio peut être traité par les serveurs de ton navigateur (Google, Apple) ; tes heures restent sur ton téléphone."
                   : "⚠️ Ton navigateur ne supporte pas la reconnaissance vocale."}
               </div>
             </div>

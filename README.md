@@ -24,7 +24,7 @@
 ## ✨ Fonctionnalités principales
 
 - 📝 **Saisie manuelle des heures** avec gestion des pauses (en minutes)
-- 🎤 **Commande vocale** — dis simplement *"aujourd'hui de 8h15 à 16h49"* ou *"lundi 3 juin de 6h à 18h50"* pour ajouter une entrée (100 % reconnaissance vocale native, aucune donnée envoyée à un service externe)
+- 🎤 **Commande vocale** — dis simplement *"aujourd'hui de 8h15 à 16h49"* ou *"lundi 3 juin de 6h à 18h50"* pour ajouter une entrée (utilise la reconnaissance vocale du navigateur : selon le navigateur, l'audio peut être traité sur les serveurs de Google ou d'Apple ; tes heures, elles, restent sur ton téléphone)
 - 📊 **Statistiques** par semaine, par mois ou pour un mois au choix
 - 🌙 **Horaires de nuit** gérés (ex. 22h → 6h, la fin est comptée le lendemain)
 - 💰 **Calcul automatique du salaire** selon ton taux horaire
