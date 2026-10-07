@@ -2,7 +2,7 @@
 <html lang="fr">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#0a0a0a" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black" />
@@ -13,11 +13,11 @@
     <title>Temps de Travail</title>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
-      html, body { background: #0a0a0a !important; min-height: 100vh; }
-      #root { background: #0a0a0a !important; min-height: 100vh; }
+      /* Fond initial (avant le chargement de React) ; l'app le remplace selon le thème. */
+      html, body, #root { background: #0a0a0a; min-height: 100vh; }
     </style>
   </head>
-  <body style="background:#0a0a0a; margin:0; padding:0;">
+  <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
     <script>

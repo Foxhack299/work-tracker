@@ -9,14 +9,15 @@
 
 ---
 
-## 📱 Aperçu des 4 onglets
+## 📱 Aperçu des 5 onglets
 
 | Onglet | Description |
 |---|---|
 | 📆 **Calendrier** | Saisie manuelle des heures de travail (arrivée, départ, pause) avec commande vocale intégrée pour dicter une journée en une phrase. |
-| 📊 **Stats** | Statistiques agrégées par semaine, mois ou période personnalisée, avec calcul automatique du salaire estimé selon le taux horaire. |
+| 📊 **Stats** | Statistiques de la semaine en cours (lundi → dimanche), du mois en cours et de n'importe quel mois au choix, avec calcul automatique du salaire estimé selon le taux horaire. |
 | 📋 **Historique** | Liste chronologique de toutes les sessions enregistrées, avec durée et temps de pause pour chaque journée. |
-| 💾 **Sauvegarde** | Export et import des données au format JSON, gestion du thème clair/sombre et informations sur la commande vocale. |
+| 💾 **Sauvegarde** | Export et import des données au format JSON. |
+| ⚙️ **Paramètres** | Thème clair / sombre et informations sur la commande vocale. |
 
 ---
 
@@ -24,7 +25,8 @@
 
 - 📝 **Saisie manuelle des heures** avec gestion des pauses (en minutes)
 - 🎤 **Commande vocale** — dis simplement *"aujourd'hui de 8h15 à 16h49"* ou *"lundi 3 juin de 6h à 18h50"* pour ajouter une entrée (100 % reconnaissance vocale native, aucune donnée envoyée à un service externe)
-- 📊 **Statistiques** par semaine, mois ou période personnalisée
+- 📊 **Statistiques** par semaine, par mois ou pour un mois au choix
+- 🌙 **Horaires de nuit** gérés (ex. 22h → 6h, la fin est comptée le lendemain)
 - 💰 **Calcul automatique du salaire** selon ton taux horaire
 - 💾 **Sauvegarde et restauration** des données via export/import de fichier JSON
 - 🌗 **Thème clair / sombre** au choix

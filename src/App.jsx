@@ -20,13 +20,6 @@ const THEMES = {
   },
 };
 
-function formatDuration(seconds) {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = seconds % 60;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-}
-
 function formatHM(seconds) {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -46,6 +39,26 @@ function formatDate(date) {
 function timeStrToSeconds(timeStr) {
   const [h, m] = timeStr.split(":").map(Number);
   return h * 3600 + m * 60;
+}
+
+// Amplitude entre début et fin ; si la fin est avant le début, c'est un horaire de nuit (fin le lendemain).
+function spanSeconds(startStr, endStr) {
+  const startSec = timeStrToSeconds(startStr);
+  const endSec = timeStrToSeconds(endStr);
+  if (endSec === startSec) return null;
+  return endSec > startSec ? endSec - startSec : endSec + 86400 - startSec;
+}
+
+function getWeekStart(date) {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return d;
+}
+
+function isValidSession(s) {
+  return s && typeof s === "object"
+    && Number.isFinite(s.start) && Number.isFinite(s.end) && Number.isFinite(s.duration)
+    && s.duration >= 0;
 }
 
 function groupByDay(sessions) {
@@ -156,15 +169,11 @@ function parseSpokenEntry(raw) {
 
 export default function App() {
   const [tab, setTab] = useState("calendar");
-  const [running, setRunning] = useState(false);
-  const [startTime, setStartTime] = useState(null);
-  const [elapsed, setElapsed] = useState(0);
   const [sessions, setSessions] = useState([]);
   const [hourlyRate, setHourlyRate] = useState(() => { try { const s = localStorage.getItem("work_tracker_hourly_rate"); return s ? parseFloat(s) : 15; } catch { return 15; } });
   const [editingRate, setEditingRate] = useState(false);
   const [importMsg, setImportMsg] = useState(null);
   const importRef = useRef(null);
-  const intervalRef = useRef(null);
 
   const [theme, setTheme] = useState(() => {
     try { return localStorage.getItem(THEME_KEY) || "dark"; } catch { return "dark"; }
@@ -208,44 +217,25 @@ export default function App() {
     try {
       localStorage.setItem(THEME_KEY, theme);
     } catch {}
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", THEMES[theme].bg);
   }, [theme]);
 
-  useEffect(() => {
-    if (running) {
-      intervalRef.current = setInterval(() => {
-        setElapsed(Math.floor((Date.now() - startTime) / 1000));
-      }, 1000);
-    } else {
-      clearInterval(intervalRef.current);
-    }
-    return () => clearInterval(intervalRef.current);
-  }, [running, startTime]);
-
-  const handleStart = () => {
-    setStartTime(Date.now());
-    setElapsed(0);
-    setRunning(true);
+  const deleteSession = (id) => {
+    if (!window.confirm("Supprimer cette session ?")) return;
+    setSessions((prev) => prev.filter((s) => s.id !== id));
   };
-
-  const handleStop = () => {
-    setRunning(false);
-    const newSession = { id: Date.now(), start: startTime, end: Date.now(), duration: elapsed, type: "timer" };
-    setSessions((prev) => [newSession, ...prev]);
-    setElapsed(0);
-  };
-
-  const deleteSession = (id) => setSessions((prev) => prev.filter((s) => s.id !== id));
 
   const handleManualAdd = () => {
-    const startSec = timeStrToSeconds(manualStart);
-    const endSec = timeStrToSeconds(manualEnd);
-    if (endSec <= startSec) return;
-    const duration = Math.max(0, endSec - startSec - (manualBreak || 0) * 60);
+    const span = spanSeconds(manualStart, manualEnd);
+    if (span === null) return;
+    const duration = span - (manualBreak || 0) * 60;
+    if (duration <= 0) return;
     const [y, mo, d] = selectedDate.split("-").map(Number);
     const [sh, sm] = manualStart.split(":").map(Number);
     const [eh, em] = manualEnd.split(":").map(Number);
+    const overnight = timeStrToSeconds(manualEnd) < timeStrToSeconds(manualStart);
     const startTs = new Date(y, mo - 1, d, sh, sm).getTime();
-    const endTs = new Date(y, mo - 1, d, eh, em).getTime();
+    const endTs = new Date(y, mo - 1, d + (overnight ? 1 : 0), eh, em).getTime();
     const newSession = { id: Date.now(), start: startTs, end: endTs, duration, breakMin: manualBreak || 0, type: "manual" };
     setSessions((prev) => [newSession, ...prev].sort((a, b) => b.start - a.start));
     setManualSuccess(true);
@@ -314,13 +304,14 @@ export default function App() {
     >🎤</button>
   );
 
-  const totalSeconds = sessions.reduce((acc, s) => acc + (s.duration || 0), 0);
-  const weekSessions = sessions.filter((s) => (Date.now() - s.start) / 86400000 <= 7);
+  const weekStart = getWeekStart(new Date());
+  const weekEnd = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + 7);
+  const weekSessions = sessions.filter((s) => s.start >= weekStart.getTime() && s.start < weekEnd.getTime());
   const weekSeconds = weekSessions.reduce((acc, s) => acc + (s.duration || 0), 0);
   const now = new Date();
   const monthSessions = sessions.filter((s) => { const d = new Date(s.start); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); });
   const monthSeconds = monthSessions.reduce((acc, s) => acc + (s.duration || 0), 0);
-  const sessionDays = new Set(sessions.map((s) => new Date(s.start).toISOString().slice(0, 10)));
+  const sessionDays = new Set(sessions.map((s) => toDateStr(new Date(s.start))));
   const days = groupByDay(sessions);
 
 
@@ -342,8 +333,11 @@ export default function App() {
     reader.onload = (ev) => {
       try {
         const data = JSON.parse(ev.target.result);
-        if (data.sessions) setSessions(data.sessions);
-        if (data.hourlyRate) setHourlyRate(data.hourlyRate);
+        if (!data || !Array.isArray(data.sessions) || !data.sessions.every(isValidSession)) throw new Error("invalid");
+        const rate = Number(data.hourlyRate);
+        if (!window.confirm(`Remplacer toutes tes données actuelles par ${data.sessions.length} session(s) de la sauvegarde ?`)) return;
+        setSessions(data.sessions.map((s, i) => ({ ...s, id: s.id ?? s.start + i })));
+        if (data.hourlyRate !== undefined && Number.isFinite(rate) && rate >= 0) setHourlyRate(rate);
         setImportMsg("✓ Données restaurées avec succès !");
         setTimeout(() => setImportMsg(null), 3000);
       } catch {
@@ -362,13 +356,16 @@ export default function App() {
   const nextMonth = () => { if (calMonth === 11) { setCalMonth(0); setCalYear(y => y+1); } else setCalMonth(m=>m+1); };
 
   const previewDuration = () => {
-    const dur = Math.max(0, timeStrToSeconds(manualEnd) - timeStrToSeconds(manualStart) - (manualBreak||0)*60);
-    return dur > 0 ? formatHM(dur) : "--";
+    const span = spanSeconds(manualStart, manualEnd);
+    const dur = span === null ? 0 : span - (manualBreak||0)*60;
+    if (dur <= 0) return "--";
+    const overnight = timeStrToSeconds(manualEnd) < timeStrToSeconds(manualStart);
+    return formatHM(dur) + (overnight ? " (+1j)" : "");
   };
 
   const inputStyle = {
     background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 4,
-    padding: "10px 12px", color: "var(--text)", fontSize: 15,
+    padding: "10px 12px", color: "var(--text)", fontSize: 16,
     fontFamily: "'Courier New', monospace", width: "100%",
   };
 
@@ -384,51 +381,6 @@ export default function App() {
       </div>
 
       <div style={{ flex:1, overflowY:"auto", paddingBottom:100 }}>
-
-        {/* ── TIMER ── */}
-        {tab==="timer" && (
-          <div style={{ padding:24 }}>
-
-            {/* Recap entrée / sortie + heures du jour */}
-            {(() => {
-              const todayStr = getTodayStr();
-              const todaySessions = sessions.filter(s => new Date(s.start).toISOString().slice(0,10) === todayStr);
-              const todaySeconds = todaySessions.reduce((acc,s) => acc + (s.duration||0), 0);
-              const lastSession = todaySessions[0] || null;
-              return (
-                <div style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:4, padding:20, marginBottom:16 }}>
-                  <div style={{ fontSize:10, letterSpacing:3, color:"var(--muted)", marginBottom:16 }}>RÉCAPITULATIF DU JOUR</div>
-                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:12 }}>
-                    <div style={{ background:"var(--bg)", borderRadius:4, padding:"14px 16px" }}>
-                      <div style={{ fontSize:10, letterSpacing:2, color:"var(--muted2)", marginBottom:6 }}>ENTRÉE</div>
-                      <div style={{ fontSize:26, fontWeight:"bold", color: lastSession ? "var(--text)" : "var(--muted4)", fontVariantNumeric:"tabular-nums" }}>
-                        {lastSession ? formatTime(lastSession.start) : "--:--"}
-                      </div>
-                    </div>
-                    <div style={{ background:"var(--bg)", borderRadius:4, padding:"14px 16px" }}>
-                      <div style={{ fontSize:10, letterSpacing:2, color:"var(--muted2)", marginBottom:6 }}>SORTIE</div>
-                      <div style={{ fontSize:26, fontWeight:"bold", color: lastSession ? "var(--text)" : "var(--muted4)", fontVariantNumeric:"tabular-nums" }}>
-                        {lastSession ? formatTime(lastSession.end) : "--:--"}
-                      </div>
-                    </div>
-                  </div>
-                  <div style={{ background:"var(--bg)", borderRadius:4, padding:"12px 16px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                    <span style={{ fontSize:11, color:"var(--muted2)" }}>Heures travaillées aujourd'hui</span>
-                    <span style={{ fontSize:20, fontWeight:"bold", color: todaySeconds > 0 ? "var(--accent)" : "var(--muted4)" }}>
-                      {todaySeconds > 0 ? formatHM(todaySeconds) : "--"}
-                    </span>
-                  </div>
-                  {todaySessions.length > 1 && (
-                    <div style={{ marginTop:6, fontSize:10, color:"var(--muted3)", textAlign:"right" }}>
-                      {todaySessions.length} sessions aujourd'hui
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-
-          </div>
-        )}
 
         {/* ── CALENDRIER ── */}
         {tab==="calendar" && (
@@ -566,7 +518,7 @@ export default function App() {
 
             {/* Sessions of selected day */}
             {(() => {
-              const daySessions = sessions.filter(s => new Date(s.start).toISOString().slice(0,10)===selectedDate);
+              const daySessions = sessions.filter(s => toDateStr(new Date(s.start))===selectedDate);
               if(daySessions.length===0) return <div style={{ textAlign:"center", color:"var(--muted4)", fontSize:12, padding:"16px 0" }}>Aucune session ce jour</div>;
               return (
                 <div>
@@ -709,7 +661,6 @@ export default function App() {
 
           </div>
         )}
-      </div>
 
         {/* ── SAUVEGARDE ── */}
         {tab==="save" && (
@@ -807,6 +758,7 @@ export default function App() {
             </div>
           </div>
         )}
+      </div>
 
       {/* Bottom Nav */}
       <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:430, background:"var(--navBg)", borderTop:"1px solid var(--borderSoft)", display:"flex", padding:"12px 0 24px" }}>
@@ -833,6 +785,7 @@ export default function App() {
           --accent:${v.accent}; --danger:${v.danger}; --successBg:${v.successBg}; --dangerBg:${v.dangerBg};
           --scrollThumb:${v.scrollThumb};
         }
+        html, body, #root { background:var(--bg); }
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
         * { box-sizing:border-box; }
         input:focus { outline:none; }
