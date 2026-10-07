@@ -154,7 +154,8 @@ function parseSpokenDate(raw) {
 function parseSpokenEntry(raw) {
   const text = normalizeText(raw);
 
-  const timeRegex = /(\d{1,2}\s*(?:heures?|h|:)\s*(?:\d{1,2})?|\bmidi\b|\bminuit\b)/g;
+  // Inclut "et demie", "et quart", "moins le quart" dans le jeton pour que parseSpokenTime les voie.
+  const timeRegex = /(\d{1,2}\s*(?:heures?|h|:)\s*(?:\d{1,2})?(?:\s*(?:et\s+demie?|et\s+quart|moins\s+(?:le\s+)?quart)\b)?|\b(?:midi|minuit)(?:\s+et\s+demie?)?\b)/g;
   const timeTokens = [];
   let m;
   while ((m = timeRegex.exec(text)) !== null) {
@@ -169,14 +170,20 @@ function parseSpokenEntry(raw) {
 
 export default function App() {
   const [tab, setTab] = useState("calendar");
-  const [sessions, setSessions] = useState([]);
-  const [hourlyRate, setHourlyRate] = useState(() => { try { const s = localStorage.getItem("work_tracker_hourly_rate"); return s ? parseFloat(s) : 15; } catch { return 15; } });
+  // Lecture directe au démarrage : un effet "charger" séparé laissait l'effet "sauvegarder" écrire [] par-dessus les données.
+  const [sessions, setSessions] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+      return Array.isArray(saved) ? saved.filter(isValidSession) : [];
+    } catch { return []; }
+  });
+  const [hourlyRate, setHourlyRate] = useState(() => { try { const s = localStorage.getItem("work_tracker_hourly_rate"); const r = parseFloat(s); return Number.isFinite(r) && r >= 0 ? r : 15; } catch { return 15; } });
   const [editingRate, setEditingRate] = useState(false);
   const [importMsg, setImportMsg] = useState(null);
   const importRef = useRef(null);
 
   const [theme, setTheme] = useState(() => {
-    try { return localStorage.getItem(THEME_KEY) || "dark"; } catch { return "dark"; }
+    try { const t = localStorage.getItem(THEME_KEY); return THEMES[t] ? t : "dark"; } catch { return "dark"; }
   });
   const [voiceListening, setVoiceListening] = useState(false);
   const [voiceError, setVoiceError] = useState(null);
@@ -193,13 +200,6 @@ export default function App() {
   const [manualSuccess, setManualSuccess] = useState(false);
   const [filterMonth, setFilterMonth] = useState(today.getMonth());
   const [filterYear, setFilterYear] = useState(today.getFullYear());
-
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) setSessions(JSON.parse(saved));
-    } catch {}
-  }, []);
 
   useEffect(() => {
     try {
@@ -323,7 +323,8 @@ export default function App() {
     a.href = url;
     a.download = "pointeuse-sauvegarde-" + new Date().toLocaleDateString("fr-FR").split("/").join("-") + ".json";
     a.click();
-    URL.revokeObjectURL(url);
+    // Révoquer tout de suite peut annuler le téléchargement (Safari iOS notamment).
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   const handleImport = (e) => {
@@ -485,7 +486,7 @@ export default function App() {
 
               <div style={{ marginBottom:16 }}>
                 <div style={{ fontSize:10, letterSpacing:2, color:"var(--muted)", marginBottom:6 }}>PAUSE (minutes)</div>
-                <input type="number" min={0} max={480} value={manualBreak} onChange={(e)=>setManualBreak(Number(e.target.value))} style={inputStyle} placeholder="0" />
+                <input type="number" min={0} max={480} value={manualBreak} onChange={(e)=>setManualBreak(Math.max(0, Number(e.target.value) || 0))} style={inputStyle} placeholder="0" />
                 <div style={{ display:"flex", gap:6, marginTop:8 }}>
                   {[0,15,30,45,60].map(m=>(
                     <button key={m} onClick={()=>setManualBreak(m)} style={{
